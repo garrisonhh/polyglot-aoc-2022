@@ -89,10 +89,10 @@ endl:
         end     FRAME
 #undef FRAME
 
-// dealing with linux ==========================================================
+// utilities ===================================================================
 
-// mmaps a file from a fd, returns pointer to data
-// (hey, file length is returned secretly in %rdi)
+// mmaps a file from a fd, returns pointer to data in %rax and len in %rdi
+// file string is EOF-terminated
 file_map:
 #define FRAME   $16
         begin   FRAME
@@ -125,7 +125,228 @@ file_map:
         end     FRAME
 #undef FRAME
 
+// prints an error and calls exit(1)
+// error: [*:0]u8 -> ()
+panic:
+        call    print
+
+        mov     SYS_EXIT, %rax
+        mov     $1, %rdi
+        syscall
+
+// u8 -> ()
+putchar:
+#define FRAME   $1
+        begin   FRAME
+
+        mov     %dil, (%rsp)
+
+        mov     SYS_WRITE, %rax
+        mov     STDOUT, %rdi
+        mov     %rsp, %rsi
+        mov     $1, %rdx
+        syscall
+
+        end     FRAME
+#undef FRAME
+
 // solution ====================================================================
+
+// custom callconv; takes mask in %rax and bit in %sil, modifies mask to
+// include bit. all other registers are preserved.
+set_bit:
+        push    %rdi
+        push    %rcx
+
+        mov     %sil, %cl
+        mov     $1, %rdi
+        shl     %cl, %rdi
+        or      %rdi, %rax
+
+        pop     %rcx
+        pop     %rdi
+        ret
+
+gen_bitset_unrecognized: .asciz "unrecognized character in gen_bitset"
+
+// str: [*]u8, len: usize -> u64
+// generate a bitmask representing the set of alpha characters this contains
+// lowercase are stored at bits 0-25 and uppercase at 26-51
+gen_bitset:
+#define FRAME   $0
+        begin   FRAME
+
+        xor     %rax, %rax
+        mov     %rsi, %rcx
+gen_bitset_loop:
+        // get *rdi++ into dl
+        movb    (%rdi), %dl
+        add     $1, %rdi
+
+        // test for lowercase or uppercase
+        sub     $'A', %dl
+        mov     %dl, %sil
+        sub     $26, %dl
+        jl      gen_bitset_uppercase
+
+        sub     $['a' - 26 - 'A'], %dl
+        mov     %dl, %sil
+        sub     $26, %dl
+        jl      gen_bitset_lowercase
+
+        // bad char
+        mov     $gen_bitset_unrecognized, %rdi
+        call    panic
+
+gen_bitset_lowercase:
+        call    set_bit
+        jmp     gen_bitset_loop_continue
+
+gen_bitset_uppercase:
+        add     $26, %sil
+        call    set_bit
+        jmp     gen_bitset_loop_continue
+
+gen_bitset_loop_continue:
+        loop    gen_bitset_loop
+
+        end     FRAME
+#undef FRAME
+
+todo: .asciz "TODO\n"
+
+// u64 -> ()
+print_bitset:
+#define FRAME   $0
+        begin   FRAME
+
+        mov     %rdi, %rax
+
+        // lowercase loop
+        mov     $26, %rcx
+print_bitset_lower:
+        mov     %rax, %rdi
+        and     $1, %rdi
+        cmp     $0, %rdi
+        jz      print_bitset_lower_continue
+
+        // letter is set
+        push    %rax
+        push    %rcx
+
+        mov     $['a' + 26], %dil
+        sub     %cl, %dil
+        call    putchar
+
+        pop     %rcx
+        pop     %rax
+
+print_bitset_lower_continue:
+        shr     $1, %rax
+        loop    print_bitset_lower
+
+        // uppercase loop
+        mov     $26, %rcx
+print_bitset_upper:
+        mov     %rax, %rdi
+        and     $1, %rdi
+        cmp     $0, %rdi
+        jz      print_bitset_upper_continue
+
+        // letter is set
+        push    %rax
+        push    %rcx
+
+        mov     $['A' + 26], %dil
+        sub     %cl, %dil
+        call    putchar
+
+        pop     %rcx
+        pop     %rax
+
+print_bitset_upper_continue:
+        shr     $1, %rax
+        loop    print_bitset_upper
+
+        end     FRAME
+#undef FRAME
+
+part1_msg0: .asciz "got "
+part1_msg1: .asciz " from bitsets "
+
+// str: [*]u8, len: usize -> ()
+part1:
+#define FRAME   $32
+        begin   FRAME
+
+part1_loop:
+        // test for EOF
+        cmpb    $0, (%rdi)
+        je      part1_loop_exit
+
+        // store current start of string
+        mov     %rdi, (%rsp)
+
+        // count length of next line
+        mov     $0, %rax
+part1_line_loop:
+        cmpb    $'\n', (%rdi)
+        je      part1_line_loop_exit
+        add     $1, %rdi
+        add     $1, %rax
+        jmp     part1_line_loop
+part1_line_loop_exit:
+
+        // I actually need length/2, store this
+        shr     $1, %rax
+        mov     %rax, +8(%rsp)
+
+        // generate the bit sets and store
+        mov     (%rsp), %rdi
+        mov     %rax, %rsi
+        call    gen_bitset
+        mov     %rax, +16(%rsp)
+
+        mov     (%rsp), %rdi
+        mov     +8(%rsp), %rsi
+        add     %rsi, %rdi
+        call    gen_bitset
+        mov     %rax, +24(%rsp)
+
+        // final bitset
+        and     +16(%rsp), %rax
+        push    %rax
+
+        // print bit sets
+        mov     $part1_msg0, %rdi
+        call    print
+
+        pop     %rdi
+        call    print_bitset
+
+        mov     $part1_msg1, %rdi
+        call    print
+
+        mov     +16(%rsp), %rdi
+        call    print_bitset
+
+        mov     $' ', %dil
+        call    putchar
+
+        mov     +24(%rsp), %rdi
+        call    print_bitset
+        call    endl
+
+        // iterate
+        mov     (%rsp), %rdi
+        add     +8(%rsp), %rdi
+        add     +8(%rsp), %rdi
+        add     $1, %rdi
+        jmp     part1_loop
+part1_loop_exit:
+
+        end     FRAME
+#undef FRAME
 
 // entry point =================================================================
 
@@ -148,14 +369,10 @@ _start:
         push    %rax
         push    %rdi
 
-        // TODO do whatever...
-
-        // (print the file as a test)
-        mov     %rdi, %rdx
-        mov     %rax, %rsi
-        mov     SYS_WRITE, %rax
-        mov     STDOUT, %rdi
-        syscall
+        // solution
+        mov     %rdi, %rsi
+        mov     %rax, %rdi
+        call    part1
 
         // unmap file
         pop     %rsi
