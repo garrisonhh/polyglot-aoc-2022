@@ -55,10 +55,11 @@ strlen_count_exit:
 
 // prints a c string
 print:
-#define FRAME   $16
+#define FRAME   $8
         begin   FRAME
+        push    %rcx
 
-        mov     %rdi, (%rsp)
+        mov     %rdi, -8(%rbp)
 
         // find length
         call    strlen
@@ -67,9 +68,10 @@ print:
         mov     %rax, %rdx
         mov     SYS_WRITE, %rax
         mov     STDOUT, %rdi
-        mov     (%rsp), %rsi
+        mov     -8(%rbp), %rsi
         syscall
 
+        pop     %rcx
         end     FRAME
 #undef FRAME
 
@@ -78,6 +80,7 @@ endl_endl:      .ascii "\n"
 endl:
 #define FRAME   $0
         begin   FRAME
+        push    %rcx
 
         // write
         mov     SYS_WRITE, %rax
@@ -86,12 +89,14 @@ endl:
         mov     $1, %rdx
         syscall
 
+        pop     %rcx
         end     FRAME
 #undef FRAME
 
 print_decimal:
 #define FRAME   $64
         begin   FRAME
+        mov     %rcx, -8(%rbp)
 
         // zero is a special case
         cmp     $0, %rdi
@@ -136,6 +141,7 @@ print_decimal_print_loop:
         loop    print_decimal_print_loop
 
 print_decimal_return:
+        mov     -8(%rbp), %rcx
         end     FRAME
 #undef FRAME
 
@@ -187,15 +193,18 @@ panic:
 putchar:
 #define FRAME   $1
         begin   FRAME
+        push    %rcx
 
-        mov     %dil, (%rsp)
+        mov     %dil, -1(%rbp)
 
         mov     SYS_WRITE, %rax
         mov     STDOUT, %rdi
-        mov     %rsp, %rsi
+        mov     %rbp, %rsi
+        sub     $1, %rsi
         mov     $1, %rdx
         syscall
 
+        pop     %rcx
         end     FRAME
 #undef FRAME
 
@@ -224,6 +233,7 @@ gen_bitset_unrecognized: .asciz "unrecognized character in gen_bitset"
 gen_bitset:
 #define FRAME   $0
         begin   FRAME
+        push    %rcx
 
         xor     %rax, %rax
         mov     %rsi, %rcx
@@ -259,6 +269,7 @@ gen_bitset_uppercase:
 gen_bitset_loop_continue:
         loop    gen_bitset_loop
 
+        pop     %rcx
         end     FRAME
 #undef FRAME
 
@@ -268,6 +279,7 @@ todo: .asciz "TODO\n"
 print_bitset:
 #define FRAME   $0
         begin   FRAME
+        push    %rcx
 
         mov     %rdi, %rax
 
@@ -281,13 +293,11 @@ print_bitset_lower:
 
         // letter is set
         push    %rax
-        push    %rcx
 
         mov     $['a' + 26], %dil
         sub     %cl, %dil
         call    putchar
 
-        pop     %rcx
         pop     %rax
 
 print_bitset_lower_continue:
@@ -304,27 +314,60 @@ print_bitset_upper:
 
         // letter is set
         push    %rax
-        push    %rcx
 
         mov     $['A' + 26], %dil
         sub     %cl, %dil
         call    putchar
 
-        pop     %rcx
         pop     %rax
 
 print_bitset_upper_continue:
         shr     $1, %rax
         loop    print_bitset_upper
 
+        pop     %rcx
+        end     FRAME
+#undef FRAME
+
+score_bitset_err: .asciz "error: can't score empty bitset"
+
+// u64 -> u64
+score_bitset:
+        bsf     %rdi, %rdi
+        jnz     score_bitset_success
+
+        // empty bitset :(
+        mov     $score_bitset_err, %rdi
+        call    panic
+
+score_bitset_success:
+        add     $1, %rdi
+        mov     %rdi, %rax
+        ret
+
+// [*]u8 -> usize
+// counts until next newline in a string
+line_length:
+#define FRAME   $0
+        begin   FRAME
+
+        // count length of next line
+        xor     %rax, %rax
+line_length_loop:
+        cmpb    $'\n', (%rdi)
+        je      line_length_return
+        add     $1, %rdi
+        add     $1, %rax
+        jmp     line_length_loop
+
+line_length_return:
         end     FRAME
 #undef FRAME
 
 part1_msg0: .asciz "got "
 part1_msg1: .asciz " from bitsets "
-part1_msg2: .asciz "error: empty bitset"
 part1_msg3: .asciz "; score: "
-part1_msg4: .asciz "final score: "
+part1_msg4: .asciz "part 1) final score: "
 
 // str: [*]u8, len: usize -> ()
 part1:
@@ -343,14 +386,7 @@ part1_loop:
         mov     %rdi, (%rsp)
 
         // count length of next line
-        mov     $0, %rax
-part1_line_loop:
-        cmpb    $'\n', (%rdi)
-        je      part1_line_loop_exit
-        add     $1, %rdi
-        add     $1, %rax
-        jmp     part1_line_loop
-part1_line_loop_exit:
+        call    line_length
 
         // I actually need length/2, store this
         shr     $1, %rax
@@ -374,6 +410,7 @@ part1_line_loop_exit:
         mov     %rax, +32(%rsp)
 
         // print bit sets
+#if 0
         mov     $part1_msg0, %rdi
         call    print
 
@@ -398,18 +435,11 @@ part1_line_loop_exit:
         mov     %rbx, %rdi
         call    print_decimal
         call    endl
+#endif
 
         // store score
-        mov     +32(%rsp), %rax
-        bsf     %rax, %rax
-        jnz     part1_ctz_success
-
-        // empty bitset :(
-        mov     $part1_msg2, %rdi
-        call    panic
-
-part1_ctz_success:
-        add     $1, %rax
+        mov     +32(%rsp), %rdi
+        call    score_bitset
         add     %rax, %rbx
 
         // iterate
@@ -422,6 +452,74 @@ part1_loop_exit:
 
         // print final score
         mov     $part1_msg4, %rdi
+        call    print
+
+        mov     %rbx, %rdi
+        call    print_decimal
+        call    endl
+
+        end     FRAME
+#undef FRAME
+
+part2_msg0: .asciz "part 2) final score: "
+
+XXX: .asciz "next inventory is:\n"
+
+// str: [*]u8, len: usize -> ()
+part2:
+#define FRAME   $40
+        begin   FRAME
+
+        mov     %rdi, +24(%rsp)
+        mov     %rsi, +32(%rsp)
+
+        // %rbx stores running sum
+        mov     $0, %rbx
+
+part2_loop:
+        mov     %rdi, (%rsp)
+
+        // test for EOF
+        cmpb    $0, (%rdi)
+        je      part1_loop_exit
+
+        // score thrice
+        movq    $[(1 << 52) - 1], %rax
+        mov     %rax, +16(%rsp)
+        mov     $3, %rcx
+part2_inv_loop:
+        mov     %rdi, (%rsp)
+        call    line_length
+        mov     %rax, +8(%rsp)
+
+        // generate bitset with str + len
+        mov     (%rsp), %rdi
+        mov     +8(%rsp), %rsi
+        call    gen_bitset
+
+        // and with prev sets
+        and     +16(%rsp), %rax
+        mov     %rax, +16(%rsp)
+
+        // iterate
+        mov     (%rsp), %rdi
+        add     +8(%rsp), %rdi
+        add     $1, %rdi
+        mov     %rdi, (%rsp)
+        loop    part2_inv_loop
+
+        // score this inventory
+        mov     +16(%rsp), %rdi
+        call    score_bitset
+        add     %rax, %rbx
+
+        // iterate
+        mov     (%rsp), %rdi
+        jmp     part2_loop
+
+part2_loop_exit:
+        // display final status
+        mov     $part2_msg0, %rdi
         call    print
 
         mov     %rbx, %rdi
@@ -452,10 +550,18 @@ _start:
         push    %rax
         push    %rdi
 
-        // solution
-        mov     %rdi, %rsi
-        mov     %rax, %rdi
+        // solutions
+#if 1
+        mov     +8(%rsp), %rdi
+        mov     (%rsp), %rsi
         call    part1
+#endif
+
+#if 1
+        mov     +8(%rsp), %rdi
+        mov     (%rsp), %rsi
+        call    part2
+#endif
 
         // unmap file
         pop     %rsi
