@@ -35,8 +35,8 @@
   (define (vec2-map f . vec2s)
     (list->vec2 (apply map (cons f (map vec2->list vec2s)))))
 
-  (define (vec2-index p width)
-    (+ (* (vec2-y p) width) (vec2-x p)))
+  (define (vec2-index width pos)
+    (+ (* (vec2-y pos) width) (vec2-x pos)))
 
   (define (vec2-add v1 v2)
     (vec2-map + v1 v2))
@@ -53,10 +53,10 @@
     (display "]\n"))
 
   (define (vector-vec2-ref v width pos)
-    (vector-ref v (vec2-index pos width)))
+    (vector-ref v (vec2-index width pos)))
 
   (define (vector-vec2-set! v width pos obj)
-    (vector-set! v (vec2-index pos width) obj))
+    (vector-set! v (vec2-index width pos) obj))
 
   (define-record-type grid
     (fields
@@ -91,91 +91,65 @@
         (< x (vec2-x size))
         (< y (vec2-y size)))))
 
-  ; given a ray, generates list of positions within grid
-  (define (gen-ray-vector size pos dir)
-    (letrec ([grv-aux (lambda [ls pos]
-                              (if (not (inbounds size pos))
-                                  ls
-                                  (grv-aux (cons pos ls) (vec2-add pos dir))))])
-      (list->vector (reverse (grv-aux '() pos)))))
+  ; returns a `(visible: bool) * (score: int)`
+  (define (view-cast grid pos dir)
+    (let ([tree (grid-ref grid pos)])
+      (letrec ([aux (lambda [cur n]
+                            ; (display-all "aux: " tree " " cur " " n "\n")
+                            (let ([size (grid-size grid)]
+                                  [next (vec2-add cur dir)]
+                                  [np (+ n 1)])
+                              (if (inbounds size next)
+                                  (if (> tree (grid-ref grid next))
+                                      (aux next np)
+                                      (cons #f np))
+                                  (cons #t n))))])
+        (aux pos 0))))
 
-  ; returns a `(vec2 * bool) vector`
-  (define (visible-in-dir grid pos dir)
-    (let* ([size (grid-size grid)]
-           [positions (gen-ray-vector size pos dir)]
-           [visible (list->vector
-                      (reverse (car (fold-left
-                        (lambda [ctx pos]
-                          (let* ([visible (car ctx)]
-                                 [height (cdr ctx)]
-                                 [tree (grid-ref grid pos)])
-                            (if (> tree height)
-                                (cons (cons #t visible) tree)
-                                (cons (cons #f visible) height))))
-                        (cons '() -1)
-                        (vector->list positions)))))])
-      (let ([visibilities (vector-map list positions visible)])
-        ; (display "visibilities for ")
-        ; (vec2-display pos)
-        ; (display " ")
-        ; (vec2-display dir)
-        ; (display ": ")
-        ; (vector-for-each
-          ; (lambda [p]
-            ; (vec2-display (car p))
-            ; (display-all " " (cadr p) ", "))
-          ; visibilities)
-        ; (newline)
+  ; returns a `((visible: bool) * (score: int)) vector` the same size as grid
+  (define (cast-all grid)
+    (define dirs
+      (map
+        (lambda [e] (apply make-vec2 e))
+        '((1 0) (0 1) (-1 0) (0 -1))))
 
-        visibilities)))
+    (let* ([size (grid-size grid)] [width (vec2-x size)])
+      (list->vector
+        (map
+          (lambda [idx]
+            (let* ([pos (make-vec2 (div idx width) (mod idx width))]
+                   [dir-scores (map
+                                 (lambda [dir] (view-cast grid pos dir))
+                                 dirs)]
+                   [combined (fold-left
+                               (lambda [ctx pair]
+                                       (cons (or (car pair) (car ctx))
+                                             (* (cdr pair) (cdr ctx))))
+                               (cons #f 1)
+                               dir-scores)])
+              combined))
+          (range 0 (* (vec2-x size) (vec2-y size)))))))
 
   ; returns a `bool vector` the same size as the grid
-  (define (visible-in-grid grid)
-    (let ([size (grid-size grid)])
-      (define side-rays
-        (let ([origin (make-vec2 0 0)]
-              [diag (make-vec2 (- (vec2-x size) 1) (- (vec2-y size) 1))])
-          (list (cons origin (make-vec2 1 0))
-                (cons origin (make-vec2 0 1))
-                (cons diag (make-vec2 0 -1))
-                (cons diag (make-vec2 -1 0)))))
+  (define (visibility-grid grid)
+    (vector-map car (cast-all grid)))
 
-      (let* ([rays (apply vector-concat
-                     (map
-                       (lambda [ray]
-                         (let* ([pos (car ray)] [dir (cdr ray)]
-                                [cast-dir (make-vec2 (vec2-y dir)
-                                                     (vec2-x dir))])
-                           (vector-map
-                             (lambda [p] (cons p cast-dir))
-                             (gen-ray-vector size pos dir))))
-                       side-rays))]
-             [vis-casts (apply vector-concat
-                          (vector->list
-                            (vector-map
-                              (lambda [r]
-                                      (visible-in-dir grid (car r) (cdr r)))
-                              rays)))]
-             [visibilities (make-vector (vector-length vis-casts) #f)]
-             [width (vec2-x size)])
-        (vector-for-each
-          (lambda [e]
-            (let ([pos (car e)] [is-vis (cadr e)])
-              (vector-vec2-set! visibilities width pos
-                (or (vector-vec2-ref visibilities width pos) is-vis))))
-          vis-casts)
-        visibilities)))
+  ; returns an `int vector` the same size as the grid
+  (define (score-grid grid)
+    (vector-map cdr (cast-all grid)))
 
   (define (part1 grid)
-    (let* ([visible (visible-in-grid grid)]
-           [total-vis (fold-left
-                        (lambda [total e] (+ total (if e 1 0)))
-                        0
-                        (vector->list visible))])
-      (display-all "total visible trees: " total-vis "\n")))
+    (let* ([visible (visibility-grid grid)]
+           [total (fold-left
+                    (lambda [s e] (+ s (if e 1 0)))
+                    0
+                    (vector->list visible))])
+      (display-all "part 1) total trees visible: " total "\n")))
 
   (define (part2 grid)
-    0)
+    (let* ([scores (score-grid grid)]
+           [best (fold-left max 0 (vector->list scores))])
+      (display-all "part 2) best score: " best "\n")))
 
   ; input stuff ================================================================
 
@@ -217,7 +191,7 @@
                                  (string->vector line)))]
            [line-digits (vector-map parse-line lines)]
            [grid (fold-left vector-concat (make-vector 0)
-                   (vector->list line-digits))]
+                   (reverse (vector->list line-digits)))]
            [grid-len (vector-length grid)]
            [size (make-vec2 (string-length (vector-ref lines 0))
                             (vector-length lines))])
