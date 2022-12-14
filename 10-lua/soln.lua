@@ -4,7 +4,7 @@
 
 CPU = {
     x = 1,
-    cycle = 1,
+    history = {}, -- list of x states
 }
 
 CPUCycles = {
@@ -15,50 +15,74 @@ CPUCycles = {
 function CPU:new()
     local t = {}
     setmetatable(t, self)
+    t.history = {1}
     self.__index = self
     return t
 end
 
 function CPU:doInst(inst)
     local op = inst[1]
-    self.cycle = self.cycle + CPUCycles[op]
+    for _ = 1, CPUCycles[op] - 1 do
+        table.insert(self.history, self.x)
+    end
 
     if op == "addx" then
         self.x = self.x + tonumber(inst[2])
     end
 
-    -- print(string.format("%s -> %d %d", op, self.cycle, self.x))
+    table.insert(self.history, self.x)
+end
+
+function CPU:runProgram(program)
+    for i = 1, #program do
+        self:doInst(program[i])
+    end
+end
+
+function CPU:printCRT()
+    local WIDTH = 40
+    local HEIGHT = 6
+
+    for y = 1, HEIGHT do
+        for x = 1, WIDTH do
+            local reg = self.history[x + (y - 1) * WIDTH]
+
+            if math.abs((x - 1) - reg) <= 1 then
+                io.write("#")
+            else
+                io.write(".")
+            end
+        end
+        print()
+    end
+end
+
+function CPU:showHistory()
+    print("[cpu history]")
+    for i = 1, #self.history do
+        print(string.format("during %d - %d", i, self.history[i]))
+    end
 end
 
 function Part1(program)
     local cpu = CPU:new()
+    cpu:runProgram(program)
+
     local sig_cycles = {20, 60, 100, 140, 180, 220}
-    local sig_i = 1
     local sig_sum = 0
 
-    for i = 1, #program do
-        local inst = program[i]
-        local last_x = cpu.x
-        cpu:doInst(inst)
-
-        if sig_i <= #sig_cycles then
-            local found = false
-            if cpu.cycle > sig_cycles[sig_i] then
-                found = true
-            elseif cpu.cycle == sig_cycles[sig_i] then
-                last_x = cpu.x
-                found = true
-            end
-
-            if found then
-                -- print(string.format("cycle %d: x = %d", sig_cycles[sig_i], last_x))
-                sig_sum = sig_sum + sig_cycles[sig_i] * last_x
-                sig_i = sig_i + 1
-            end
-        end
+    for _, cycle in pairs(sig_cycles) do
+        sig_sum = sig_sum + cycle * cpu.history[cycle]
     end
 
     print(string.format("part 1) sum of strengths: %d", sig_sum))
+end
+
+function Part2(program)
+    local cpu = CPU:new()
+    cpu:runProgram(program)
+    print("part 2)")
+    cpu:printCRT()
 end
 
 -- main ------------------------------------------------------------------------
@@ -105,5 +129,5 @@ if #arg ~= 1 then
 end
 
 local program = ReadProgram(arg[1])
-
 Part1(program)
+Part2(program)
