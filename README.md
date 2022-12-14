@@ -62,3 +62,4 @@
    tooling. With Rust there is a lot more of a feeling of fighting the compiler
    rather than working with it, but the feeling of getting something compiling
    and usually having it work immediately is pretty incredible
+10) **Lua** - cute lil scripting language.
