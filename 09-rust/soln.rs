@@ -64,8 +64,7 @@ impl From<Dir> for Vec2 {
 
 #[derive(Debug)]
 struct RopeState {
-    head: Vec2,
-    tail: Vec2,
+    knots: Vec<Vec2>,
     // locations that tail has visited
     visited: HashSet<Vec2>,
 }
@@ -82,39 +81,48 @@ fn clamp(a: i32, x: i32, b: i32) -> i32 {
     }
 }
 
+fn sim_next_knot(fst: Vec2, snd: Vec2) -> Vec2 {
+    let diff = fst - snd;
+    if std::cmp::max(i32::abs(diff.x), i32::abs(diff.y)) == 1 {
+        // tail doesn't need to move
+        snd
+    } else {
+        // move tail
+        snd + Vec2 {
+            x: clamp(-1, diff.x, 1),
+            y: clamp(-1, diff.y, 1)
+        }
+    }
+}
+
 impl RopeState {
-    fn new() -> Self {
-        let mut state = Self {
-            head: Vec2::origin(),
-            tail: Vec2::origin(),
-            visited: HashSet::new(),
-        };
+    fn new(n: usize) -> Self {
+        let mut knots: Vec<Vec2> = Vec::with_capacity(n);
+        for _ in 0..n {
+            knots.push(Vec2::origin());
+        }
 
-        state.visited.insert(state.tail);
+        let mut visited = HashSet::new();
+        visited.insert(Vec2::origin());
 
-        state
+        Self { knots, visited }
     }
 
     fn move_in_dir(self, dir: Dir) -> Self {
-        let head = self.head + dir.into();
-        let diff = head - self.tail;
-
-        let tail = if std::cmp::max(i32::abs(diff.x), i32::abs(diff.y)) == 1 {
-            // tail doesn't need to move
-            self.tail
-        } else {
-            // move tail
-            self.tail + Vec2 {
-                x: clamp(-1, diff.x, 1),
-                y: clamp(-1, diff.y, 1)
-            }
-        };
+        let next_knots: Vec<Vec2> = self.knots.iter()
+                .enumerate()
+                .map(|(i, knot)| if i == 0 {
+                    *knot + dir.into()
+                } else {
+                    sim_next_knot(self.knots[i - 1], *knot)
+                })
+                .collect();
 
         // append to visited set
         let mut visited = self.visited;
-        visited.insert(tail);
+        visited.insert(*next_knots.last().unwrap());
 
-        Self{ head, tail, visited }
+        Self{ knots: next_knots, visited }
     }
 
     fn perform(self, instructions: &Vec<(Dir, i32)>) -> Self {
@@ -126,10 +134,18 @@ impl RopeState {
 }
 
 fn part1(instructions: &Vec<(Dir, i32)>) {
-    let final_state = RopeState::new().perform(instructions);
+    let final_state = RopeState::new(2).perform(instructions);
     let visited = &final_state.visited;
 
     println!("part 1) tail visited {} locations", visited.len());
+}
+
+
+fn part2(instructions: &Vec<(Dir, i32)>) {
+    let final_state = RopeState::new(10).perform(instructions);
+    let visited = &final_state.visited;
+
+    println!("part 2) tail visited {} locations", visited.len());
 }
 
 // main ========================================================================
@@ -175,6 +191,7 @@ fn main() -> Result<(), String> {
     let instructions = parse_instructions(&data);
 
     part1(&instructions);
+    part2(&instructions);
 
     Ok(())
 }
