@@ -57,3 +57,8 @@
    wrote my final solution, it was incredibly elegant. It's interesting to me
    how once I got over the hump of learning the environment, it just felt like
    the parts of Python I really like.
+9) **Rust** - Have heard people talk about similarities between Rust and OCaml
+   before, and the experience is honestly very similar in terms of the fantastic
+   tooling. With Rust there is a lot more of a feeling of fighting the compiler
+   rather than working with it, but the feeling of getting something compiling
+   and usually having it work immediately is pretty incredible
